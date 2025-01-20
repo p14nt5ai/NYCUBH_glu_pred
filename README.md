@@ -18,12 +18,12 @@
 1. train_by_torch_real_5m.py :
 預測5分鐘後血糖，資料同復現論文  
 使用有限的參數做 grid_search  
-在 Training set 找到最適合的(LU, DU, SL)後，在 Testing set 上測試
+在 Training set 找到最適合的 ( LU, DU, SL ) 後，在 Testing set 上測試
 
 2. train_by_torch_real_30m.py :  
 預測30分鐘後血糖，資料來源同復現論文(與5m使用資料不同)  
 一樣使用有限的參數做 grid_search
-使用 grid_search 在 Training set 找到最適合的(LU, DU, SL)後，在 Testing set 上測試
+使用 grid_search 在 Training set 找到最適合的 ( LU, DU, SL ) 後，在 Testing set 上測試
 
 ### result
 存放實驗結果
