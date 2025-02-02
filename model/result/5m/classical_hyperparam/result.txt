@@ -1,12 +1,6 @@
-(LU, DU, SL) = (50, 30, 10)
-Patient 0: Test RMSE = 4.8369, Training Time = 3.44 s
-Patient 1: Test RMSE = 3.8043, Training Time = 2.39 s
-Patient 2: Test RMSE = 6.3253, Training Time = 4.24 s
-Patient 3: Test RMSE = 28.6815, Training Time = 8.10 s
-Patient 4: Test RMSE = 10.0806, Training Time = 2.50 s
-Patient 5: Test RMSE = 9.4932, Training Time = 2.40 s
-Patient 6: Test RMSE = 9.8195, Training Time = 5.05 s
-Patient 7: Test RMSE = 4.1255, Training Time = 3.34 s
-Patient 8: Test RMSE = 18.0272, Training Time = 7.55 s
-Patient 9: Test RMSE = 4.4427, Training Time = 6.35 s
-平均 RMSE = 9.9637
+42: 10.939882707595824
+7: 10.152056241035462
+123: 10.273744463920593
+2025: 10.264852166175842
+0: 10.280061554908752
+Average RMSE: 10.382119426727295

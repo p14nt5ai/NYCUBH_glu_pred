@@ -1,0 +1,6 @@
+Overall Avg Test RMSE = 9.9739
+Seed 42: Best Params = (70, 50, 20), Val RMSE (Step3) = 20.0346, Avg Test RMSE = 9.8548
+Seed 7: Best Params = (50, 30, 20), Val RMSE (Step3) = 18.9604, Avg Test RMSE = 9.9313
+Seed 123: Best Params = (40, 10, 20), Val RMSE (Step3) = 18.6001, Avg Test RMSE = 10.0675
+Seed 2025: Best Params = (60, 50, 5), Val RMSE (Step3) = 20.6420, Avg Test RMSE = 9.3791
+Seed 0: Best Params = (70, 50, 5), Val RMSE (Step3) = 19.6456, Avg Test RMSE = 10.6368
