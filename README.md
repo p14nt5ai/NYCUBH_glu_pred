@@ -27,6 +27,10 @@
 
 ### result
 存放實驗結果
+
+### preprocessing  
+  + extract_conti_data.py :  
+切割tblADataCGMS.csv成可用的連續片段檔案
 ## real_data
 1. tblADataCGMS.csv:  
 原始資料
