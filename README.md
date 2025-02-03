@@ -1,6 +1,9 @@
 # NYCUBH_glu_pred
 2025/01/20
 
+
+
+
 ## model
 ### script
 
@@ -31,6 +34,13 @@
 ### preprocessing  
   + extract_conti_data.py :  
 切割tblADataCGMS.csv成可用的連續片段檔案
+
+
+## CV_model  
+### script  
+  + peak_analysis_lstm.py :  
+  挑選CV圖中的峰值，並進行峰值預測  
+  
 ## real_data
 1. tblADataCGMS.csv:  
 原始資料
