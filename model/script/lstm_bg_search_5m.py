@@ -643,75 +643,146 @@ def plot_rmse_for_candidates(candidate_to_patient_rmse, step_name="LU", save_pat
 
 if __name__ == "__main__":
     
-    # 準備設定
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    seeds = [42, 7, 123, 2025, 0]
+    files = count_rows_in_csv_files("../../real_data/conti")
+
+    top10_files = [
+        "pt_1_segment_2.csv", "pt_2_segment_1.csv", "pt_3_segment_1.csv",
+        "pt_4_segment_6.csv", "pt_5_segment_1.csv", "pt_6_segment_2.csv",
+        "pt_7_segment_2.csv", "pt_8_segment_2.csv", "pt_9_segment_1.csv",
+        "pt_10_segment_1.csv"
+    ]
     
-    # 固定隨機種子
-    SEED = 42
-    random.seed(SEED)
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(SEED)
-        torch.cuda.manual_seed_all(SEED)
-
-
-    files = count_rows_in_csv_files("../real_data/conti")
-    
-    # 取data最多前 10 位病患
-    # top10_files = files[:10] 
-
-    # 取PT1至PT10的病患
-    top10_files = ["pt_1_segment_2.csv", "pt_2_segment_1.csv", "pt_3_segment_1.csv", "pt_4_segment_6.csv", "pt_5_segment_1.csv", "pt_6_segment_2.csv", "pt_7_segment_2.csv", "pt_8_segment_2.csv", "pt_9_segment_1.csv", "pt_10_segment_1.csv"]
     patient_list = []
     for file in top10_files:
-        # file = os.path.join("../../real_data/conti", list(file.keys())[0])
-        file = os.path.join("../../real_data/conti", file)
-        all_data = load_single_patient_data(file)
+        file_path = os.path.join("../../real_data/conti", file)
+        all_data = load_single_patient_data(file_path)
         patient_list.append(all_data)
-    
-    # 假設已經準備好多位病患資料:
-    # patient_list = [array_of_patient1, array_of_patient2, ...]
-    # 這些 array 都是 1D 的血糖時序資料。
 
+    # 定義候選超參數
     LU_candidates = [5, 10, 20, 30, 40, 50, 60, 70]
     DU_candidates = [10, 20, 30, 40, 50]
     SL_candidates = [5, 10, 15, 20]
 
-    print("=== Step 1,2,3 搜尋 ===")
-    # step 1
-    best_LU, best_rmse, candidate_to_patient_rmse = search_best_LU_across_patients(patient_list, LU_candidates, 30, 10, device=device, num_epochs=300, batch_size=16, val_ratio=0.2)
-    print(f"Step 1: Best LU = {best_LU}, Val RMSE = {best_rmse:.4f}")
-    plot_rmse_for_candidates(candidate_to_patient_rmse, step_name="LU", save_path="result/LU_search.png")  
-    
-    # step 2
-    best_DU, best_rmse, candidate_to_patient_rmse = search_best_DU_across_patients(patient_list, DU_candidates, best_LU, 10, device=device, num_epochs=300, batch_size=16, val_ratio=0.2)
-    print(f"Step 2: Best DU = {best_DU}, Val RMSE = {best_rmse:.4f}")
-    plot_rmse_for_candidates(candidate_to_patient_rmse, step_name="DU", save_path="result/DU_search.png")
+    # 儲存每個種子的實驗結果
+    results_across_seeds = []
 
-    # step 3
-    best_SL, best_rmse, candidate_to_patient_rmse = search_best_SL_across_patients(patient_list, SL_candidates, best_LU, best_DU, device=device, num_epochs=300, batch_size=16, val_ratio=0.2)
-    print(f"Step 3: Best SL = {best_SL}, Val RMSE = {best_rmse:.4f}")
-    plot_rmse_for_candidates(candidate_to_patient_rmse, step_name="SL", save_path="result/SL_search.png")
+    # 逐一對每個種子進行實驗
+    for seed in seeds:
+        print(f"\n\n========== 使用隨機種子 {seed} 進行實驗 ==========")
 
-    print("\n=== Step 1,2,3 搜尋完畢 ===")
+        # 固定隨機種子
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
 
-    # 使用這個 (LU, DU, SL) 在每位病患上做最終訓練 & 測試:
+        print("=== Step 1,2,3 搜尋 ===")
 
-    best_params = best_LU, best_DU, best_SL
-    print("\n=== 最終訓練與測試 ===")
-    print(f"最佳 (LU, DU, SL) = {best_params}")
-    print("進行最終訓練與測試...")
-    test_rmse_list = []
-    result = final_train_and_test_for_each_patient(
-        patient_list, best_LU, best_DU, best_SL, device=device, num_epochs=300, batch_size=16, patience=20
-    )
-    for r in result:
-        print(f"Patient {r['patient_index']}: Test RMSE = {r['test_rmse']:.4f}, Training Time = {r['train_time']:.2f} s")
-        test_rmse_list.append(r['test_rmse'])
-    # 計算平均 RMSE
-    avg_rmse = np.mean(test_rmse_list)
-    print(f"平均 RMSE = {avg_rmse:.4f}")
+        # ---- Step 1: 搜尋最佳 LU ----
+        best_LU, best_rmse_LU, candidate_to_patient_rmse = search_best_LU_across_patients(
+            patient_list, LU_candidates,
+            fixed_DU=30,  
+            fixed_SL=10,
+            device=device, num_epochs=300, batch_size=16, val_ratio=0.2
+        )
+        print(f"Step 1: Best LU = {best_LU}, Val RMSE = {best_rmse_LU:.4f}")
+        plot_rmse_for_candidates(
+            candidate_to_patient_rmse,
+            step_name=f"LU_seed{seed}",
+            save_path=f"../result/5m/my_hyperparam/LU_search_seed{seed}.png"
+        )
+
+        # ---- Step 2: 搜尋最佳 DU ----
+        best_DU, best_rmse_DU, candidate_to_patient_rmse = search_best_DU_across_patients(
+            patient_list, DU_candidates,
+            Best_LU=best_LU, fixed_SL = 10,
+            device=device, num_epochs=300, batch_size=16, val_ratio=0.2
+        )
+        print(f"Step 2: Best DU = {best_DU}, Val RMSE = {best_rmse_DU:.4f}")
+        plot_rmse_for_candidates(
+            candidate_to_patient_rmse,
+            step_name=f"DU_seed{seed}",
+            save_path=f"../result/5m/my_hyperparam/DU_search_seed{seed}.png"
+        )
+
+        # ---- Step 3: 搜尋最佳 SL ----
+        best_SL, best_rmse_SL, candidate_to_patient_rmse = search_best_SL_across_patients(
+            patient_list, SL_candidates,
+            Best_LU=best_LU, Best_DU=best_DU,
+            device=device, num_epochs=300, batch_size=16, val_ratio=0.2
+        )
+        print(f"Step 3: Best SL = {best_SL}, Val RMSE = {best_rmse_SL:.4f}")
+        plot_rmse_for_candidates(
+            candidate_to_patient_rmse,
+            step_name=f"SL_seed{seed}",
+            save_path=f"../result/5m/my_hyperparam/SL_search_seed{seed}.png"
+        )
+
+        # 取得最終搜尋到的參數 (LU, DU, SL) 與最後 RMSE
+        best_rmse = best_rmse_SL  # 此處可視為第三步的最佳 RMSE
+        print("\n=== Step 1,2,3 搜尋完畢 ===")
+        print(f"Seed {seed} 最佳搜尋結果 => (LU, DU, SL) = ({best_LU}, {best_DU}, {best_SL}), Val RMSE = {best_rmse:.4f}")
+
+        # ---- 最終訓練與測試 ----
+        print("\n=== 最終訓練與測試 ===")
+        print(f"最佳 (LU, DU, SL) = ({best_LU}, {best_DU}, {best_SL})")
+        print("進行最終訓練與測試...")
+
+        result = final_train_and_test_for_each_patient(
+            patient_list,
+            best_LU=best_LU,
+            best_DU=best_DU,
+            best_SL=best_SL,
+            device=device, num_epochs=300, batch_size=16, patience=20
+        )
+
+        test_rmse_list = []
+        for r in result:
+            print(f"Patient {r['patient_index']}: Test RMSE = {r['test_rmse']:.4f}, Training Time = {r['train_time']:.2f} s")
+            test_rmse_list.append(r['test_rmse'])
+
+        # 計算平均測試 RMSE
+        avg_test_rmse = np.mean(test_rmse_list)
+        print(f"平均 Test RMSE = {avg_test_rmse:.4f}")
+
+        # 收集當前種子的結果
+        results_across_seeds.append({
+            "seed": seed,
+            "best_params": (best_LU, best_DU, best_SL),
+            "val_rmse": best_rmse,
+            "test_rmse_list": test_rmse_list,
+            "avg_test_rmse": avg_test_rmse
+        })
+
+    # ---- 最後彙整所有種子的實驗結果 ----
+    print("\n\n========== 全部種子實驗結果彙整 ==========")
+    for res in results_across_seeds:
+        print(
+            f"Seed {res['seed']}: "
+            f"Best Params = {res['best_params']}, "
+            f"Val RMSE (Step3) = {res['val_rmse']:.4f}, "
+            f"Avg Test RMSE = {res['avg_test_rmse']:.4f}"
+        )
+
+    # 平均測試 RMSE
+    overall_avg_rmse = np.mean([res['avg_test_rmse'] for res in results_across_seeds])
+    print(f"\n[總結] 所有種子的平均 Test RMSE = {overall_avg_rmse:.4f}")
+    # 保存結果 in txt
+    with open("../result/5m/my_hyperparam/hyperparam_search_result.txt", "w") as f:
+        f.write(f"Overall Avg Test RMSE = {overall_avg_rmse:.4f}\n")
+        for res in results_across_seeds:
+            f.write(
+                f"Seed {res['seed']}: "
+                f"Best Params = {res['best_params']}, "
+                f"Val RMSE (Step3) = {res['val_rmse']:.4f}, "
+                f"Avg Test RMSE = {res['avg_test_rmse']:.4f}\n"
+            )
+
+
 
 
 
