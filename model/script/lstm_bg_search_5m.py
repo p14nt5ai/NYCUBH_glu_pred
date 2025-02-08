@@ -11,17 +11,8 @@ from math import sqrt
 # (1) 讀取與前處理函式 
 
 def load_single_patient_data(file_path):
-    """
-    讀取單一病患的 CSV 時序資料 (例如包含欄位 SensorGLU)。
-    假設檔案中已根據時間排序，或不需要排序。
-    若需要排序，可自行在此函式中排序。
-    回傳: 該病患的血糖時序資料 (np.array)
-    """
+    # 讀取單一病患的 CSV 時序資料 
     df = pd.read_csv(file_path)
-    # 若尚未排序，可依實際情況對時間欄位排序，如:
-    # df = df.sort_values(by="ReadingDt")  # 或其它時間欄位
-
-    # 取出 SensorGLU 欄位，去除 NaN
     sensor_values = df["SensorGLU"].dropna().values
     return sensor_values
 
@@ -69,6 +60,7 @@ class LSTMModel(nn.Module):
         self.lstm = nn.LSTM(input_size=input_dim,
                             hidden_size=hidden_dim,
                             batch_first=True)
+        self.dropout = nn.Dropout(p=0) # dropout
         self.fc1 = nn.Linear(hidden_dim, fc_dim)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(fc_dim, 1)
@@ -78,8 +70,10 @@ class LSTMModel(nn.Module):
         lstm_out, (h_n, c_n) = self.lstm(x)
         # 取最後一個時間步的輸出
         last_time_step = lstm_out[:, -1, :]  # shape: [batch_size, hidden_dim]
-        x = self.fc1(last_time_step)
+        x = self.dropout(last_time_step) 
+        x = self.fc1(x)
         x = self.relu(x)
+        x = self.dropout(x)
         x = self.fc2(x)
         return x
 
@@ -412,7 +406,7 @@ def search_best_SL_across_patients(patient_list,
 
     return best_SL, best_rmse, candidate_to_patient_rmse
 
-# (full grid search)
+# (full grid search) not used in main
 
 def grid_search_across_patients(patient_list,
                                 LU_candidates,
@@ -517,76 +511,88 @@ def grid_search_across_patients(patient_list,
 
 # (4) 最終訓練與測試、繪圖
 
-def final_train_and_test_for_each_patient(patient_list,
-                                          best_LU, best_DU, best_SL,
-                                          horizon=1,
-                                          device='cpu',
-                                          num_epochs=30,
-                                          batch_size=16,
-                                          patience=20,
-                                          min_delta=0.001,
-                                          lr=0.001):
+def final_train_and_test_for_each_patient(
+    patient_list,
+    best_LU, best_DU, best_SL,
+    horizon=1,
+    device='cpu',
+    num_epochs=30,
+    batch_size=16,
+    patience=20,
+    min_delta=0.001,
+    lr=0.001,
+    val_ratio_within_train=0.2  # e.g. 在train_data中拿20%做validation
+):
     """
-    用找到的 (best_LU, best_DU, best_SL) + horizon，
-    逐位病患進行最終訓練(在train_data=66%)並在 test_data=34% 上評估 RMSE。
+    改進後的版本示例:
+     - 66% 全部叫 train_data, 34% 叫 test_data
+     - train_data中再切一小段做 validation
+     - 最後只用 test_data 做最終測試
     """
+
     patient_results = []
 
     for idx, data in enumerate(patient_list):
         n = len(data)
         train_size = int(0.66 * n)
         train_data = data[:train_size]
-        test_data = data[train_size:]
+        test_data  = data[train_size:]
 
-        # 若資料量不足以生成序列
         if len(train_data) < (best_SL + horizon) or len(test_data) < (best_SL + horizon):
             print(f"Patient {idx}: 資料不足以產生 (SL+Horizon) = {best_SL + horizon}，跳過...")
             continue
 
-        # 建立序列
-        X_train, y_train = create_sequences(train_data, best_SL)
-        X_test, y_test = create_sequences(test_data, best_SL)
+        # --- Step A: 在 train_data 內再切出一小段做 validation
+        val_size = int(val_ratio_within_train * len(train_data))
+        # 確保 val_size 不會太小而無法產生序列
+        if val_size < (best_SL + horizon):
+            print(f"Patient {idx}: validation set 太小，請調整 val_ratio_within_train.")
+            continue
 
-        train_loader = create_dataloader(X_train, y_train, batch_size=batch_size)
-        test_loader = create_dataloader(X_test, y_test, batch_size=batch_size, shuffle=False)
+        sub_train_data = train_data[:-val_size]  # 前面做真正的train
+        val_data       = train_data[-val_size:]  # 後面做validation
 
-        # 建模
+        # --- Step B: 產生 X, y 序列
+        X_sub_train, y_sub_train = create_sequences(sub_train_data, best_SL)
+        X_val,       y_val       = create_sequences(val_data,       best_SL)
+        X_test,      y_test      = create_sequences(test_data,      best_SL)
+
+        train_loader = create_dataloader(X_sub_train, y_sub_train, batch_size=batch_size)
+        val_loader   = create_dataloader(X_val,       y_val,       batch_size=batch_size, shuffle=False)
+        test_loader  = create_dataloader(X_test,      y_test,      batch_size=batch_size, shuffle=False)
+
+        # --- Step C: 建模與訓練
         model = LSTMModel(input_dim=1, hidden_dim=best_LU, fc_dim=best_DU).to(device)
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=lr)
 
-        # 訓練
+        best_val_loss = float('inf')
+        no_improvement = 0
+
         import time
         start_time = time.time()
 
-        best_loss = float('inf')
-        no_improvement = 0
-
         for epoch in range(num_epochs):
+            # (1) 在 sub_train 上做一個 epoch 的參數更新
             train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device)
-            
-            # 評估驗證損失
-            val_rmse = evaluate_model(model, test_loader, device)  # 使用驗證集
-            val_loss = val_rmse ** 2  # 將 RMSE 轉換為 MSE
 
-            # 判斷是否有改進
-            if best_loss - val_loss > min_delta:
-                best_loss = val_loss
-                no_improvement = 0  # 重置等待次數
+            # (2) 在 val set 上測試 RMSE，做 Early Stopping 判斷
+            val_rmse = evaluate_model(model, val_loader, device)
+            val_loss = val_rmse ** 2
+
+            if (best_val_loss - val_loss) > min_delta:
+                best_val_loss = val_loss
+                no_improvement = 0
             else:
                 no_improvement += 1
-
-            # print(f"[Patient {idx}] Epoch {epoch + 1}/{num_epochs}, Train Loss = {train_loss:.4f}, "
-            #       f"Val RMSE = {val_rmse:.4f}, No Improvement = {no_improvement}")
-
-            # 判斷是否早停
+            
             if no_improvement >= patience:
-                print(f"[Patient {idx}] Early stopping at epoch {epoch + 1}")
+                print(f"[Patient {idx}] Early stopping at epoch {epoch+1}")
                 break
-
+        
         end_time = time.time()
 
-        # 測試
+        # --- Step D: 最終用 test_loader 做測試
         test_rmse = evaluate_model(model, test_loader, device)
         train_time = end_time - start_time
 
@@ -599,6 +605,7 @@ def final_train_and_test_for_each_patient(patient_list,
         })
 
     return patient_results
+
 
 def plot_rmse_for_candidates(candidate_to_patient_rmse, step_name="LU", save_path=None):
     
@@ -687,7 +694,7 @@ if __name__ == "__main__":
             patient_list, LU_candidates,
             fixed_DU=30,  
             fixed_SL=10,
-            device=device, num_epochs=300, batch_size=16, val_ratio=0.2
+            device=device, num_epochs=300, batch_size=16, val_ratio=0.2, patience=50
         )
         print(f"Step 1: Best LU = {best_LU}, Val RMSE = {best_rmse_LU:.4f}")
         plot_rmse_for_candidates(
@@ -700,7 +707,7 @@ if __name__ == "__main__":
         best_DU, best_rmse_DU, candidate_to_patient_rmse = search_best_DU_across_patients(
             patient_list, DU_candidates,
             Best_LU=best_LU, fixed_SL = 10,
-            device=device, num_epochs=300, batch_size=16, val_ratio=0.2
+            device=device, num_epochs=300, batch_size=16, val_ratio=0.2, patience=50
         )
         print(f"Step 2: Best DU = {best_DU}, Val RMSE = {best_rmse_DU:.4f}")
         plot_rmse_for_candidates(
@@ -713,7 +720,7 @@ if __name__ == "__main__":
         best_SL, best_rmse_SL, candidate_to_patient_rmse = search_best_SL_across_patients(
             patient_list, SL_candidates,
             Best_LU=best_LU, Best_DU=best_DU,
-            device=device, num_epochs=300, batch_size=16, val_ratio=0.2
+            device=device, num_epochs=300, batch_size=16, val_ratio=0.2, patience=50
         )
         print(f"Step 3: Best SL = {best_SL}, Val RMSE = {best_rmse_SL:.4f}")
         plot_rmse_for_candidates(
@@ -737,7 +744,7 @@ if __name__ == "__main__":
             best_LU=best_LU,
             best_DU=best_DU,
             best_SL=best_SL,
-            device=device, num_epochs=300, batch_size=16, patience=20
+            device=device, num_epochs=400, batch_size=16, patience=80
         )
 
         test_rmse_list = []
@@ -779,6 +786,63 @@ if __name__ == "__main__":
                 f"Seed {res['seed']}: "
                 f"Best Params = {res['best_params']}, "
                 f"Val RMSE (Step3) = {res['val_rmse']:.4f}, "
+                f"Avg Test RMSE = {res['avg_test_rmse']:.4f}\n"
+            )
+
+
+
+
+
+
+    # Test single 
+    print('(50, 30, 10) 之實驗')
+    results_across_seeds503010 = []
+    for seed in seeds:
+        print(f"\n\n========== 使用隨機種子 {seed} 進行實驗 ==========")
+
+        # 固定隨機種子
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+
+        result = final_train_and_test_for_each_patient(
+            patient_list,
+            best_LU=50,
+            best_DU=30,
+            best_SL=10,
+            device=device, num_epochs=400, batch_size=16, patience=80
+        )
+
+        test_rmse_list = []
+        for r in result:
+            print(f"Patient {r['patient_index']}: Test RMSE = {r['test_rmse']:.4f}, Training Time = {r['train_time']:.2f} s")
+            test_rmse_list.append(r['test_rmse'])
+
+        # 計算平均測試 RMSE
+        avg_test_rmse = np.mean(test_rmse_list)
+        print(f"平均 Test RMSE = {avg_test_rmse:.4f}")
+
+        # 收集當前種子的結果
+        results_across_seeds503010.append({
+            "seed": seed,
+            "best_params": (50, 30, 10),
+            "val_rmse": None,
+            "test_rmse_list": test_rmse_list,
+            "avg_test_rmse": avg_test_rmse
+        })
+    # 平均測試 RMSE
+    overall_avg_rmse = np.mean([res['avg_test_rmse'] for res in results_across_seeds503010])
+    print(f"\n[總結] 所有種子的平均 Test RMSE = {overall_avg_rmse:.4f}")
+    # 保存結果 in txt
+    with open("../result/5m/classical_hyperparam/hyperparam_search_result.txt", "w") as f:
+        f.write(f"Overall Avg Test RMSE = {overall_avg_rmse:.4f}\n")
+        for res in results_across_seeds503010:
+            f.write(
+                f"Seed {res['seed']}: "
+                f"Best Params = {res['best_params']}, "
                 f"Avg Test RMSE = {res['avg_test_rmse']:.4f}\n"
             )
 

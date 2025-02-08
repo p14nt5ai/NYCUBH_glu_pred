@@ -1,0 +1,6 @@
+Overall Avg Test RMSE = 38.1686
+Seed 42: Best Params = (50, 30, 10), Avg Test RMSE = 37.2816
+Seed 7: Best Params = (50, 30, 10), Avg Test RMSE = 37.9152
+Seed 123: Best Params = (50, 30, 10), Avg Test RMSE = 37.7457
+Seed 2025: Best Params = (50, 30, 10), Avg Test RMSE = 38.7507
+Seed 0: Best Params = (50, 30, 10), Avg Test RMSE = 39.1497
