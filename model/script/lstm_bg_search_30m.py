@@ -849,7 +849,7 @@ if __name__ == "__main__":
     overall_avg_rmse = np.mean([res['avg_test_rmse'] for res in results_across_seeds503010])
     print(f"\n[總結] 所有種子的平均 Test RMSE = {overall_avg_rmse:.4f}")
     # 保存結果 in txt
-    with open("../result/5m/classical_hyperparam/hyperparam_search_result.txt", "w") as f:
+    with open("../result/30m/classical_hyperparam/hyperparam_search_result.txt", "w") as f:
         f.write(f"Overall Avg Test RMSE = {overall_avg_rmse:.4f}\n")
         for res in results_across_seeds503010:
             f.write(
