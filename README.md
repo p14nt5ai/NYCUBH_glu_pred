@@ -35,6 +35,8 @@
   + extract_conti_data.py :  
 切割tblADataCGMS.csv成可用的連續片段檔案
 
+## CNNLSTM_model
+流程與 model 相似，但在原有模型上加上了卷積層
 
 ## CV_model  
 ### script  
@@ -43,13 +45,20 @@
   
 ## real_data
 1. tblADataCGMS.csv:  
-原始資料
+原始資料  
+https://public.jaeb.org/direcnet/stdy/155![圖片](https://github.com/user-attachments/assets/75e14c0c-7130-41d4-b6b2-3106532c473e)
 
-2. conti  
+
+3. conti  
 存放預處理後的CGM的csv檔
 
-3. some_graph  
+4. some_graph  
 展示一些圖像化的資料
 
-4. conti_85  
+5. conti_85  
 /some_graph/e47674de-34a9-4c10-a910-64ae85580c57.png 之原始資料
+
+## CV_classifier_model  
+從CV資料轉成葡萄糖濃度
+
+
