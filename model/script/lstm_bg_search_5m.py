@@ -158,7 +158,7 @@ def search_best_LU_across_patients(patient_list,
 
             # (2) 產生序列
             if len(sub_train_data) < fixed_SL + 1 or len(val_data) < fixed_SL + 1:
-                # 若資料不足，給個 NaN 或 直接跳過
+                # 若資料不足，給個 NaN 
                 candidate_to_patient_rmse[lu].append(np.nan)
                 continue
 

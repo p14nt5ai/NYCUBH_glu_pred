@@ -19,15 +19,7 @@ def load_single_patient_data(file_path):
     return sensor_values
 
 def create_sequences(data, seq_length, horizon=6):
-    """
-    給定一維資料 data,
-    seq_length: 用多少歷史長度來預測,
-    horizon:    要往後幾個時間步預測(若資料5分鐘一筆, horizon=6代表30分鐘後).
     
-    回傳 X, y:
-        X shape: [batch_size, seq_length, 1]
-        y shape: [batch_size, 1]
-    """
     Xs, Ys = [], []
     # 留出 horizon，確保有足夠時間步可做預測
     for i in range(len(data) - seq_length - horizon + 1):
@@ -132,101 +124,6 @@ def evaluate_model(model, dataloader, device):
 # (3) Step 1,2,3 搜尋 
 
 
-def search_best_LU(sub_train_data, val_data, fixed_DU, fixed_SL,
-                   device='cpu', num_epochs=10, batch_size=16):
-    """
-    Step 1: 固定 DU, SL，搜尋最佳 LU
-    回傳 (best_LU, best_val_rmse)
-    """
-    # 先建立序列資料
-    X_sub_train, y_sub_train = create_sequences(sub_train_data, fixed_SL)
-    X_val, y_val = create_sequences(val_data, fixed_SL)
-
-    train_loader = create_dataloader(X_sub_train, y_sub_train, batch_size=batch_size)
-    val_loader = create_dataloader(X_val, y_val, batch_size=batch_size, shuffle=False)
-
-    candidate_LU = [5, 10, 20, 30, 40, 50, 60, 70]
-    best_LU = None
-    best_rmse = float('inf')
-
-    for LU in candidate_LU:
-        model = LSTMModel(input_dim=1, hidden_dim=LU, fc_dim=fixed_DU).to(device)
-        criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-        # 訓練
-        for epoch in range(num_epochs):
-            _ = train_one_epoch(model, train_loader, criterion, optimizer, device)
-
-        # 驗證
-        val_rmse = evaluate_model(model, val_loader, device)
-        if val_rmse < best_rmse:
-            best_rmse = val_rmse
-            best_LU = LU
-
-    return best_LU, best_rmse
-
-def search_best_DU(sub_train_data, val_data, best_LU, fixed_SL,
-                   device='cpu', num_epochs=10, batch_size=16):
-    """
-    Step 2: 固定 LU, SL，搜尋最佳 DU
-    回傳 (best_DU, best_val_rmse)
-    """
-    X_sub_train, y_sub_train = create_sequences(sub_train_data, fixed_SL)
-    X_val, y_val = create_sequences(val_data, fixed_SL)
-
-    train_loader = create_dataloader(X_sub_train, y_sub_train, batch_size=batch_size)
-    val_loader = create_dataloader(X_val, y_val, batch_size=batch_size, shuffle=False)
-
-    candidate_DU = [10, 20, 30, 40, 50]
-    best_DU = None
-    best_rmse = float('inf')
-
-    for DU in candidate_DU:
-        model = LSTMModel(input_dim=1, hidden_dim=best_LU, fc_dim=DU).to(device)
-        criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-        for epoch in range(num_epochs):
-            _ = train_one_epoch(model, train_loader, criterion, optimizer, device)
-
-        val_rmse = evaluate_model(model, val_loader, device)
-        if val_rmse < best_rmse:
-            best_rmse = val_rmse
-            best_DU = DU
-
-    return best_DU, best_rmse
-
-def search_best_SL(sub_train_data, val_data, best_LU, best_DU,
-                   device='cpu', num_epochs=10, batch_size=16):
-    """
-    Step 3: 固定 LU, DU，搜尋最佳 SL
-    回傳 (best_SL, best_val_rmse)
-    """
-    candidate_SL = [5, 10, 15, 20, 30, 40, 50, 100]
-    best_SL = None
-    best_rmse = float('inf')
-
-    for SL in candidate_SL:
-        X_sub_train, y_sub_train = create_sequences(sub_train_data, SL)
-        X_val, y_val = create_sequences(val_data, SL)
-
-        train_loader = create_dataloader(X_sub_train, y_sub_train, batch_size=batch_size)
-        val_loader = create_dataloader(X_val, y_val, batch_size=batch_size, shuffle=False)
-
-        model = LSTMModel(input_dim=1, hidden_dim=best_LU, fc_dim=best_DU).to(device)
-        criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-        for epoch in range(num_epochs):
-            _ = train_one_epoch(model, train_loader, criterion, optimizer, device)
-
-        val_rmse = evaluate_model(model, val_loader, device)
-        if val_rmse < best_rmse:
-            best_rmse = val_rmse
-            best_SL = SL
-
-    return best_SL, best_rmse
 
 def search_best_LU_across_patients(patient_list,
                                    candidate_LU,
@@ -270,7 +167,7 @@ def search_best_LU_across_patients(patient_list,
 
             # (2) 產生序列
             if len(sub_train_data) < fixed_SL + 1 or len(val_data) < fixed_SL + 1:
-                # 若資料不足，給個 NaN 或 直接跳過
+                # 若資料不足，給個 NaN 
                 candidate_to_patient_rmse[lu].append(np.nan)
                 continue
 
@@ -346,18 +243,15 @@ def search_best_DU_across_patients(patient_list,
     best_DU = None
     best_rmse = float('inf')
 
-    # 用來存每個候選 LU 在每位病患上的驗證 RMSE（方便後續畫圖）
-    # 結構: { LU值: [病患1的RMSE, 病患2的RMSE, ..., 病患N的RMSE] }
+   
     candidate_to_patient_rmse = {du: [] for du in candidate_DU}
 
-    # 取得總病患數
     num_patients = len(patient_list)
 
     for du in candidate_DU:
-        rmse_list = []  # 收集所有病患的RMSE(用於計算該lu的平均)
+        rmse_list = []  
 
         for idx, data in enumerate(patient_list):
-            # (1) 先做 train/val 切分
             n = len(data)
             train_size = int(0.66 * n)
             train_data = data[:train_size]
@@ -365,9 +259,7 @@ def search_best_DU_across_patients(patient_list,
             sub_train_data = train_data[:-val_size]
             val_data       = train_data[-val_size:]
 
-            # (2) 產生序列
             if len(sub_train_data) < fixed_SL + 1 or len(val_data) < fixed_SL + 1:
-                # 若資料不足，給個 NaN 或 直接跳過
                 candidate_to_patient_rmse[du].append(np.nan)
                 continue
 
@@ -377,25 +269,21 @@ def search_best_DU_across_patients(patient_list,
             train_loader = create_dataloader(X_sub_train, y_sub_train, batch_size=batch_size)
             val_loader   = create_dataloader(X_val,       y_val,       batch_size=batch_size, shuffle=False)
 
-            # (3) 建立並訓練模型
             model = LSTMModel(input_dim=1, hidden_dim=Best_LU, fc_dim=du).to(device)
             criterion = nn.MSELoss()
             optimizer = optim.Adam(model.parameters(), lr=lr)
 
-            # Early Stopping 相關變數
             best_val_loss = float('inf')
             patience_counter = 0
 
             for epoch in range(num_epochs):
                 _ = train_one_epoch(model, train_loader, criterion, optimizer, device)
 
-                # 計算驗證 RMSE
                 val_rmse = evaluate_model(model, val_loader, device)
 
-                # 檢查 Early Stopping 條件
                 if val_rmse < best_val_loss:
                     best_val_loss = val_rmse
-                    patience_counter = 0  # 重置 patience_counter
+                    patience_counter = 0  
                 else:
                     patience_counter += 1
 
@@ -403,14 +291,11 @@ def search_best_DU_across_patients(patient_list,
                     print(f"Early stopping triggered for DU={du} at epoch {epoch + 1}")
                     break
 
-            # (4) 計算驗證RMSE
             val_rmse = evaluate_model(model, val_loader, device)
             rmse_list.append(val_rmse)
 
-            # 儲存到 candidate_to_patient_rmse
             candidate_to_patient_rmse[du].append(val_rmse)
 
-        # 計算此 du 的平均RMSE
         if len(rmse_list) == 0:
             avg_val_rmse = float('inf')
         else:
@@ -433,29 +318,17 @@ def search_best_SL_across_patients(patient_list,
                                    val_ratio=0.2,
                                    patience=20,
                                    lr=0.001):
-    """
-    Step 3: 固定 DU, LU，搜尋 SL。
-    會回傳:
-      best_SL
-      best_rmse (平均驗證 RMSE)
-      candidate_to_patient_rmse: dict，key = SL, value = list of rmse per patient
-    """
-
+   
     best_SL = None
     best_rmse = float('inf')
 
-    # 用來存每個候選 LU 在每位病患上的驗證 RMSE（方便後續畫圖）
-    # 結構: { LU值: [病患1的RMSE, 病患2的RMSE, ..., 病患N的RMSE] }
     candidate_to_patient_rmse = {sl: [] for sl in candidate_SL}
 
-    # 取得總病患數
     num_patients = len(patient_list)
 
     for sl in candidate_SL:
-        rmse_list = []  # 收集所有病患的RMSE(用於計算該lu的平均)
-
+        rmse_list = []  
         for idx, data in enumerate(patient_list):
-            # (1) 先做 train/val 切分
             n = len(data)
             train_size = int(0.66 * n)
             train_data = data[:train_size]
@@ -463,9 +336,7 @@ def search_best_SL_across_patients(patient_list,
             sub_train_data = train_data[:-val_size]
             val_data       = train_data[-val_size:]
 
-            # (2) 產生序列
             if len(sub_train_data) < sl + 1 or len(val_data) < sl + 1:
-                # 若資料不足，給個 NaN 或 直接跳過
                 candidate_to_patient_rmse[sl].append(np.nan)
                 continue
 
@@ -475,24 +346,20 @@ def search_best_SL_across_patients(patient_list,
             train_loader = create_dataloader(X_sub_train, y_sub_train, batch_size=batch_size)
             val_loader   = create_dataloader(X_val,       y_val,       batch_size=batch_size, shuffle=False)
 
-            # (3) 建立並訓練模型
             model = LSTMModel(input_dim=1, hidden_dim=Best_LU, fc_dim=Best_DU).to(device)
             criterion = nn.MSELoss()
             optimizer = optim.Adam(model.parameters(), lr=lr)
 
-            # Early Stopping 相關變數
             best_val_loss = float('inf')
             patience_counter = 0
             for epoch in range(num_epochs):
                 _ = train_one_epoch(model, train_loader, criterion, optimizer, device)
 
-                # 計算驗證 RMSE
                 val_rmse = evaluate_model(model, val_loader, device)
 
-                # 檢查 Early Stopping 條件
                 if val_rmse < best_val_loss:
                     best_val_loss = val_rmse
-                    patience_counter = 0  # 重置 patience_counter
+                    patience_counter = 0  
                 else:
                     patience_counter += 1
 
@@ -500,14 +367,11 @@ def search_best_SL_across_patients(patient_list,
                     print(f"Early stopping triggered for SL={sl} at epoch {epoch + 1}")
                     break
 
-            # (4) 計算驗證RMSE
             val_rmse = evaluate_model(model, val_loader, device)
             rmse_list.append(val_rmse)
 
-            # 儲存到 candidate_to_patient_rmse
             candidate_to_patient_rmse[sl].append(val_rmse)
 
-        # 計算此 SL 的平均RMSE
         if len(rmse_list) == 0:
             avg_val_rmse = float('inf')
         else:
@@ -540,9 +404,9 @@ def plot_loss_vs_epoch(train_losses, val_losses, patient_idx=None, savepath=None
     plt.grid(True)
     
     if savepath is not None:
-        plt.savefig(savepath, dpi=600)  # dpi=300 讓圖片更清晰
+        plt.savefig(savepath, dpi=600) 
         print(f"Plot saved to {savepath}")
-        plt.close()  # 關閉圖表，以免重疊
+        plt.close()  
     else:
         plt.show()
 
@@ -643,15 +507,12 @@ def final_train_and_test_for_each_patient(
 
         print(f"[Patient {idx}] Test RMSE = {test_rmse:.4f}, TrainingTime = {train_time:.2f} s")
 
-        # 產生要儲存的圖檔路徑 (如果有指定 savepath)
-        # 可以自由決定要如何命名：此處舉例加上 patient_idx。
         patient_savepath = None
         if save_path is not None:
             import os
             filename = f"loss_curve_patient_{idx}.png"
             patient_savepath = os.path.join(save_path, filename)
 
-        # 繪製並(視需求)儲存該病人的 Loss 曲線圖
         plot_loss_vs_epoch(train_losses, val_losses, patient_idx=idx, savepath=patient_savepath)
 
         patient_results.append({
